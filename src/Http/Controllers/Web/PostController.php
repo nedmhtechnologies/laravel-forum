@@ -16,6 +16,8 @@ use TeamTeaTime\Forum\Http\Requests\UpdatePost;
 use TeamTeaTime\Forum\Models\Post;
 use TeamTeaTime\Forum\Models\Thread;
 use TeamTeaTime\Forum\Support\Web\Forum;
+use DB;
+use Storage;
 
 class PostController extends BaseController
 {
@@ -38,6 +40,7 @@ class PostController extends BaseController
 
     public function create(Request $request, Thread $thread): View
     {
+
         $this->authorize('reply', $thread);
 
         UserCreatingPost::dispatch($request->user(), $thread);
@@ -49,14 +52,82 @@ class PostController extends BaseController
 
     public function store(CreatePost $request, Thread $thread): RedirectResponse
     {
+//        dd($request);
+
         $this->authorize('reply', $thread);
 
         $post = $request->fulfill();
 
+        if(!empty($request->whiteboard_id))
+        {
+//            DB::table('forum_posts')->where('id',$post['id'])->update
+
+            $this->GenerateThumbnail($request->whiteboard_id,$post['id']);
+        }
+
         Forum::alert('success', 'general.reply_added');
 
         return new RedirectResponse(Forum::route('thread.show', $post));
+
     }
+
+    public function GenerateThumbnail($whiteboardid,$post_id)
+    {
+
+
+        $params = 'whiteboardid='.$whiteboardid.'&readonly=true';
+
+//        dump(env('APP_WHITEBOARD').$params);
+
+        $payload = array(
+            'key' => 'h0hJHUKX0He2JadtzLk3mV8todaJZ8RFlxPkrwQcTk3eaoHa1d',
+            'url' => env('APP_WHITEBOARD').$params,
+            'height' => 1080, // Optional
+            'width' => 1920, // Optional
+        );
+
+        $payload = json_encode($payload);
+
+        $ch = curl_init('http://screeenly.com/api/v1/fullsize');
+        curl_setopt($ch, CURLOPT_CUSTOMREQUEST, "POST");
+        curl_setopt($ch, CURLOPT_POSTFIELDS, $payload);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_HTTPHEADER, array(
+                'Content-Type: application/json',
+                'Content-Length: ' . strlen($payload))
+        );
+
+        $result = curl_exec($ch);
+
+//        var_dump($result);
+
+        $result = json_decode($result);
+
+        if(!empty($result->path))
+        {
+
+
+            $url = $result->path;
+            $contents = file_get_contents($url);
+            $name = substr($url, strrpos($url, '/') + 1);
+            Storage::put('public/whiteboard_previews/'.$name, $contents);
+
+            $data = array(
+                'wbd_name'=>$name,
+                'post_id'=>$post_id,
+                'created_at' =>now(),
+                'updated_at' =>now(),
+            );
+
+            DB::table('whiteboard_previews')->insert($data);
+
+
+        }
+
+
+    }
+
+
 
     public function edit(Request $request, Thread $thread, $threadSlug, Post $post): View
     {
